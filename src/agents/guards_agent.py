@@ -131,9 +131,18 @@ def detect_injection_strong(text: str) -> bool:
 
 def topic_filter_strong(text: str) -> bool:
     """Return True if input should be BLOCKED."""
-    lower = text.lower()
+    lower = text.lower().strip()
     if any(b in lower for b in BLOCKED_TOPICS):
         return True
+    # Allow short polite greetings & capability inquiries
+    greeting_patterns = [
+        r"^(?:hello|hi|hey|greetings|good\s+(?:morning|afternoon|evening)|howdy)\b(?:[\s,]+(?:vinbank|there|bot|assistant))?[\s!.?]*$",
+        r"^(?:xin\s+)?chào(?:\s+(?:bạn|bot|em|ad|anh|chị|vinbank))?[\s!.?]*$",
+        r"^(?:alo|help|hỗ\s+trợ|cần\s+giúp\s+đỡ|tư\s+vấn)[\s!.?]*$",
+        r"^(?:who\s+are\s+you|what\s+can\s+you\s+do|bạn\s+là\s+ai|bạn\s+(?:có\s+thể\s+)?làm\s+(?:được\s+)?(?:gì|những\s+gì))[\s!.?]*$",
+    ]
+    if any(re.search(pat, lower, re.IGNORECASE) for pat in greeting_patterns):
+        return False
     # Allow short banking questions; block if no banking signal and looks extractive
     if any(a in lower for a in ALLOWED_TOPICS):
         return False

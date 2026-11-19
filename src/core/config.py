@@ -33,10 +33,12 @@ except ImportError:
 PROVIDER_OPENAI = "openai"
 PROVIDER_GEMINI = "gemini"
 PROVIDER_OPENROUTER = "openrouter"
+PROVIDER_LIQUID = "liquid"
 
 # --- Blue Team (LOCKED) ---
-BLUE_PROVIDER = PROVIDER_OPENROUTER
-BLUE_MODEL = "liquid/lfm-3-1.7b:free"
+BLUE_PROVIDER = PROVIDER_LIQUID
+BLUE_MODEL = "lfm3-1.7b"
+LIQUID_BASE_URL = "https://api.liquid.ai/openai/v1"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_OPENROUTER_MODEL = BLUE_MODEL  # alias
 
@@ -96,7 +98,7 @@ except FileNotFoundError:
 
 
 # ---------------------------------------------------------------------------
-# Blue Team — fixed OpenRouter Liquid
+# Blue Team — Liquid AI / OpenRouter Liquid
 # ---------------------------------------------------------------------------
 
 def get_blue_provider() -> str:
@@ -104,22 +106,27 @@ def get_blue_provider() -> str:
 
 
 def get_blue_model() -> str:
-    # Hard-locked; env cannot override for the graded Blue Team path.
-    return BLUE_MODEL
+    # Default is Liquid AI lfm3-1.7b; can be overridden via LIQUID_MODEL
+    return os.environ.get("LIQUID_MODEL", BLUE_MODEL).strip() or BLUE_MODEL
 
 
 def get_openrouter_api_key() -> str:
-    return os.environ.get("OPENROUTER_API_KEY", "").strip()
+    return (
+        os.environ.get("LIQUID_API_KEY", "").strip()
+        or os.environ.get("OPENROUTER_API_KEY", "").strip()
+    )
 
 
 def blue_client_kwargs() -> dict:
-    """OpenAI SDK kwargs pointing at OpenRouter (Blue Team only)."""
+    """OpenAI SDK kwargs pointing at Liquid AI / OpenRouter (Blue Team only)."""
+    base_url = (
+        os.environ.get("LIQUID_BASE_URL", "").strip()
+        or os.environ.get("OPENROUTER_BASE_URL", "").strip()
+        or LIQUID_BASE_URL
+    )
     return {
         "api_key": get_openrouter_api_key() or None,
-        "base_url": (
-            os.environ.get("OPENROUTER_BASE_URL", OPENROUTER_BASE_URL).strip()
-            or OPENROUTER_BASE_URL
-        ),
+        "base_url": base_url,
     }
 
 
@@ -170,7 +177,14 @@ def get_openai_api_key() -> str:
 
 
 def red_openai_client_kwargs() -> dict:
-    return {"api_key": get_openai_api_key() or None}
+    kwargs = {"api_key": get_openai_api_key() or None}
+    base_url = (
+        os.environ.get("OPENAI_BASE_URL", "").strip()
+        or os.environ.get("RED_OPENAI_BASE_URL", "").strip()
+    )
+    if base_url:
+        kwargs["base_url"] = base_url
+    return kwargs
 
 
 def red_provider_label(tier: str = "advance") -> str:
@@ -235,10 +249,10 @@ def is_harder_model() -> bool:
 
 
 def setup_api_key():
-    """Ensure keys for Blue (OpenRouter) + Red / Red Advance (OpenAI or Gemini)."""
+    """Ensure keys for Blue (Liquid AI) + Red / Red Advance (OpenAI or Gemini)."""
     if not get_openrouter_api_key():
-        os.environ["OPENROUTER_API_KEY"] = input(
-            "Enter OpenRouter API Key (Blue): "
+        os.environ["LIQUID_API_KEY"] = input(
+            "Enter Liquid AI API Key (Blue): "
         ).strip()
     print(f"Blue  — {blue_provider_label()}  [LOCKED]")
 
@@ -268,9 +282,16 @@ ALLOWED_TOPICS = [
     "banking", "account", "transaction", "transfer",
     "loan", "interest", "savings", "credit",
     "deposit", "withdrawal", "balance", "payment",
+    "card", "bank", "vinbank", "atm", "branch",
+    "fee", "finance", "money", "customer",
     "tai khoan", "giao dich", "tiet kiem", "lai suat",
     "chuyen tien", "the tin dung", "so du", "vay",
-    "ngan hang", "atm",
+    "ngan hang", "chi nhanh", "tien gui", "rut tien",
+    "phi", "tai chinh", "khach hang", "dich vu",
+    "tài khoản", "giao dịch", "tiết kiệm", "lãi suất",
+    "chuyển tiền", "thẻ tín dụng", "số dư", "tiền gửi",
+    "rút tiền", "ngân hàng", "thanh toán", "khoản vay",
+    "chi nhánh", "phí", "tài chính", "khách hàng", "dịch vụ",
 ]
 
 BLOCKED_TOPICS = [

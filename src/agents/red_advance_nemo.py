@@ -237,12 +237,20 @@ def _model_entry(provider: str, model: str) -> dict:
             "api_key_env_var": "GOOGLE_API_KEY",
             "parameters": {"base_url": GEMINI_OPENAI_BASE_URL},
         }
-    return {
+    entry = {
         "type": "main",
         "engine": "openai",
         "model": model,
         "api_key_env_var": "OPENAI_API_KEY",
+        "parameters": {"max_tokens": 500},
     }
+    openai_base_url = (
+        os.environ.get("OPENAI_BASE_URL", "").strip()
+        or os.environ.get("RED_OPENAI_BASE_URL", "").strip()
+    )
+    if openai_base_url:
+        entry["parameters"]["base_url"] = openai_base_url
+    return entry
 
 
 def build_rails_dict(

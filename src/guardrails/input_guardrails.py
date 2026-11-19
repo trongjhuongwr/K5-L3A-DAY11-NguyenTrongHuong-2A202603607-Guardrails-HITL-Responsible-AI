@@ -10,7 +10,9 @@ Status convention (không dùng True/False mơ hồ):
 """
 from __future__ import annotations
 
+import base64
 import re
+import unicodedata
 from typing import Literal
 
 from google.genai import types
@@ -21,6 +23,28 @@ from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
 
 # Quyết định rõ ràng — tránh đảo nghĩa True/False
 InputStatus = Literal["ALLOW", "BLOCK"]
+
+ZERO_WIDTH = "\u200b\u200c\u200d\ufeff\u2060"
+
+
+def _normalize_text(text: str) -> str:
+    """Canonicalize Unicode and remove invisible separators before inspection."""
+    normalized = unicodedata.normalize("NFKC", text or "")
+    return normalized.translate(str.maketrans("", "", ZERO_WIDTH))
+
+
+def _extract_obfuscated_views(text: str) -> list[str]:
+    """Extract decoded views from base64 or obfuscation."""
+    views = [text]
+    for token in re.findall(r"[A-Za-z0-9+/=]{8,}", text):
+        try:
+            padded = token + "=" * (-len(token) % 4)
+            decoded = base64.b64decode(padded).decode("utf-8", errors="ignore")
+            if decoded and any(c.isalnum() for c in decoded):
+                views.append(_normalize_text(decoded))
+        except Exception:
+            pass
+    return views
 
 
 # ============================================================
@@ -51,15 +75,66 @@ def detect_injection(user_input: str) -> InputStatus:
     Returns:
         ``"BLOCK"`` if injection detected (chặn), ``"ALLOW"`` otherwise (cho qua).
     """
+    cleaned = _normalize_text(user_input)
+
     INJECTION_PATTERNS = [
-        # TODO: Add at least 5 regex patterns
-        # Example:
-        # r"ignore (all )?(previous|above) instructions",
+        # 1. Direct instruction overrides & ignore rules
+        r"ignore\s+(?:all\s+)?(?:previous|above|prior)?\s*instructions?",
+        r"disregard\s+(?:all\s+)?(?:previous|above|prior)?\s*(?:instructions?|rules?|directives?)",
+        r"forget\s+(?:your\s+)?(?:instructions?|rules?|prompt)",
+        r"override\s+(?:your\s+)?(?:system\s+)?(?:prompt|instructions?)",
+        r"bỏ\s+qua\s+(?:mọi\s+)?hướng\s+dẫn",
+        r"quên\s+(?:mọi\s+)?hướng\s+dẫn",
+        # 2. Jailbreak personas & roleplay
+        r"you\s+are\s+now\b",
+        r"\bDAN\b",
+        r"developer\s+mode",
+        r"god\s*mode|jailbreak",
+        r"pretend\s+(?:you\s+are|to\s+be)",
+        r"act\s+as\s+(?:a\s+|an\s+)?(?:unrestricted|evil|jailbroken)",
+        r"role\s*play\s+as",
+        r"bạn\s+là\s+DAN",
+        r"đóng\s+vai",
+        # 3. System prompt / internal instructions extraction
+        r"system\s+prompt",
+        r"repeat\s+(?:the\s+)?(?:words|text|instructions?)\s+(?:above|before)",
+        r"what\s+(?:were|are)\s+you\s+told\s+before",
+        r"print\s+(?:your\s+)?(?:initial\s+)?(?:system\s+)?(?:prompt|instructions?)",
+        r"show\s+(?:me\s+)?(?:your\s+)?(?:system\s+)?(?:prompt|instructions?|config)",
+        r"translate\s+(?:your\s+)?(?:instructions?|system\s+prompt|rules?)",
+        r"output\s+(?:your\s+)?(?:config|instructions?|prompt)\s+(?:as|in)\s+(?:json|yaml|xml)",
+        # 4. Credential / Secret probing
+        r"reveal\s+(?:your\s+)?(?:instructions?|prompt|secrets?|password|api\s*key)",
+        r"reveal\s+(?:the\s+)?internal\s+password",
+        r"fill\s+in\s*(?:the\s*)?(?:blank|blanks|___)",
+        r"password\s*(?:is|=|:)",
+        r"tiết\s+lộ\s+(?:mật\s*khẩu|api|system\s*prompt|thông\s*tin\s*nội\s*bộ)",
+        r"thông\s*tin\s*nội\s*bộ|internal\s*(?:info|information|docs?|data)",
+        r"(?:đưa|cung\s*cấp)\s+(?:toàn\s*bộ\s+)?(?:thông\s*tin|dữ\s*liệu|mật\s*khẩu)",
+        r"cho\s+tôi\s+(?:xem\s+)?(?:mật\s*khẩu|system\s*prompt|api\s*key)",
+        r"mật\s+khẩu\s+(?:admin|quản\s*trị|hệ\s*thống)",
+        r"khóa\s+api|api\s*key",
+        r"cấu\s+hình\s+(?:nội\s*bộ|hệ\s*thống)",
+        # 5. Direct secret probes (side-channel confirmation)
+        r"admin123",
+        r"sk-vinbank",
+        r"db\.vinbank",
+        # 6. Social engineering / Fake authority / Scenarios
+        r"\bCISO\b|\bCEO\b|lead\s+developer|security\s+audit",
+        r"ticket\s+SEC-\d+",
+        r"hypotheticall?y.*(?:password|api|secret|credential)",
+        r"write\s+a\s+story.*(?:password|credential|secret)",
+        r"kể\s+chuyện.*(?:mật\s*khẩu|secret|nội\s*bộ)",
+        # 7. Obfuscation, decoding & payload smuggling
+        r"(?:giải\s*mã|decode)\s*(?:base64|hex|rot13|chuỗi|mã)?",
+        r"(?:base64|hex|rot13)\s*(?:decode|decoding|giải\s*mã)",
     ]
 
-    for pattern in INJECTION_PATTERNS:
-        if re.search(pattern, user_input, re.IGNORECASE):
-            return "BLOCK"
+    views = _extract_obfuscated_views(cleaned)
+    for view in views:
+        for pattern in INJECTION_PATTERNS:
+            if re.search(pattern, view, re.IGNORECASE):
+                return "BLOCK"
     return "ALLOW"
 
 
@@ -74,6 +149,22 @@ def detect_injection(user_input: str) -> InputStatus:
 # Return ``"ALLOW"`` if banking-related and OK.
 # ============================================================
 
+# Pure greeting / conversational opener patterns (allow polite intro without false-blocking)
+GREETING_PATTERNS = [
+    # 1. English greetings
+    r"^(?:hello|hi|hey|greetings|good\s+(?:morning|afternoon|evening)|howdy)\b(?:[\s,]+(?:vinbank|there|bot|assistant))?[\s!.?]*$",
+    # 2. Vietnamese greetings
+    r"^(?:xin\s+)?chào(?:\s+(?:bạn|bot|em|ad|anh|chị|vinbank))?[\s!.?]*$",
+    r"^(?:alo|help|hỗ\s+trợ|cần\s+giúp\s+đỡ|tư\s+vấn)[\s!.?]*$",
+    # 3. Help requests
+    r"^(?:hello|hi|xin\s+chào|chào\s+bạn)?[\s,!]*(?:can\s+you\s+help\s+me|how\s+can\s+you\s+help|tôi\s+cần\s+(?:giúp\s+đỡ|hỗ\s+trợ|tư\s+vấn)|bạn\s+giúp\s+tôi\s+được\s+không)[\s!.?]*$",
+    # 4. Identity & Capability inquiries (Who are you? What can you do? Bạn có thể làm gì?)
+    r"^(?:who\s+are\s+you|what\s+can\s+you\s+do|what\s+are\s+your\s+(?:capabilities|features|functions)|how\s+can\s+you\s+assist|introduce\s+yourself)[\s!.?]*$",
+    r"^(?:bạn|bot|em)\s+(?:là\s+ai|có\s+thể\s+làm\s+(?:được\s+)?(?:gì|những\s+gì)|làm\s+được\s+(?:gì|những\s+gì)|biết\s+làm\s+gì|giúp\s+(?:được\s+)?(?:gì|những\s+gì)|hỗ\s+trợ\s+(?:được\s+)?(?:gì|những\s+gì)|có\s+chức\s+năng\s+gì)[\s!.?]*$",
+    r"^(?:tôi\s+có\s+thể\s+(?:hỏi|yêu\s+cầu)\s+(?:bạn\s+)?(?:gì|những\s+gì)|hướng\s+dẫn\s+(?:sử\s+dụng|hỏi\s+đáp)|giới\s+thiệu(?:\s+về)?\s+(?:bản\s+thân|vinbank|dịch\s+vụ))[\s!.?]*$",
+]
+
+
 def topic_filter(user_input: str) -> InputStatus:
     """Decide whether the input is on-topic for VinBank.
 
@@ -82,16 +173,29 @@ def topic_filter(user_input: str) -> InputStatus:
 
     Returns:
         ``"BLOCK"`` = chặn (off-topic hoặc topic cấm).
-        ``"ALLOW"`` = cho qua (câu banking hợp lệ).
+        ``"ALLOW"`` = cho qua (câu banking hợp lệ hoặc lời chào mở đầu).
     """
-    input_lower = user_input.lower()
+    cleaned = _normalize_text(user_input).lower().strip()
+    unaccented = "".join(
+        c for c in unicodedata.normalize("NFD", cleaned)
+        if unicodedata.category(c) != "Mn"
+    )
 
-    # TODO: Implement logic:
     # 1. If input contains any blocked topic -> return "BLOCK"
-    # 2. If input doesn't contain any allowed topic -> return "BLOCK"
-    # 3. Otherwise -> return "ALLOW"
+    if any(b in cleaned or b in unaccented for b in BLOCKED_TOPICS):
+        return "BLOCK"
 
-    pass  # Replace with your implementation
+    # 2. If input is a polite greeting or conversational opener -> return "ALLOW"
+    for pattern in GREETING_PATTERNS:
+        if re.search(pattern, cleaned, re.IGNORECASE) or re.search(pattern, unaccented, re.IGNORECASE):
+            return "ALLOW"
+
+    # 3. If input doesn't contain any allowed topic -> return "BLOCK"
+    if not any(a in cleaned or a in unaccented for a in ALLOWED_TOPICS):
+        return "BLOCK"
+
+    # 4. Otherwise -> return "ALLOW"
+    return "ALLOW"
 
 
 # ============================================================
@@ -144,14 +248,19 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
         self.total_count += 1
         text = self._extract_text(user_message)
 
-        # TODO: Implement logic:
-        # 1. Call detect_injection(text)
-        #    - If "BLOCK": increment blocked_count, return self._block_response("...")
-        # 2. Call topic_filter(text)
-        #    - If "BLOCK": increment blocked_count, return self._block_response("...")
-        # 3. If both return "ALLOW": return None (let message through)
+        if detect_injection(text) == "BLOCK":
+            self.blocked_count += 1
+            return self._block_response(
+                "I cannot process that request. I only help with VinBank banking questions."
+            )
 
-        pass  # Replace with your implementation
+        if topic_filter(text) == "BLOCK":
+            self.blocked_count += 1
+            return self._block_response(
+                "I'm a VinBank assistant and can only help with banking-related questions."
+            )
+
+        return None
 
 
 # ============================================================

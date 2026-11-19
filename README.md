@@ -1,5 +1,31 @@
 # Day 11 — Controlled Agent Security (2026)
 
+## Thông tin học viên & Bài nộp
+- **Họ và tên:** Nguyễn Trọng Hưởng
+- **Mã số sinh viên (MSSV):** 2A202603607
+- **Lớp:** K5-L3A
+- **Repo:** `K5-L3A-DAY11-NguyenTrongHuong-2A202603607-Guardrails-HITL-Responsible-AI`
+- **Cấu hình mô hình:**
+  - **Blue Team (Phòng thủ):** Liquid AI (`lfm3-1.7b`) qua OpenAI-compatible endpoint.
+  - **Red Team (Tấn công):** OpenRouter (`openai/gpt-4o-mini`).
+- **Kết quả đạt được:**
+  - Checkpoint 2 (Guardrails): Đạt 40/40 điểm.
+  - Checkpoint 3 (Pipeline & Contract): Đạt 40/40 điểm (`results.json` hợp lệ).
+  - Checkpoint 4 (Red Team): Đạt 20/20 điểm (5/5 prompt leak thành công secret trên Red Default).
+  - Bonus Lab: Đạt điều kiện **Bonus B1 (+5 điểm)**.
+  - Smoke tests & Public tests: 100% Passed.
+
+### Demo Trợ Lý Ngân Hàng & Slide Thuyết Trình
+- **Khởi chạy Web Demo (FastAPI + Giao diện Google Gemini Dark Mode):**
+  ```bash
+  python scripts/web_demo.py
+  ```
+  Truy cập: [http://127.0.0.1:8000](http://127.0.0.1:8000) (Tích hợp Audit Mode soi độ trễ & Công tắc Bật/Tắt NVIDIA NeMo Guardrails).
+- **Slide Thuyết Trình Tương Tác (Chuẩn OWASP Top 10 LLM & Agentic Top 10):**
+  Truy cập: [http://127.0.0.1:8000/slides](http://127.0.0.1:8000/slides) hoặc mở trực tiếp file `presentation.html`.
+
+---
+
 > 👤 **Hình thức:** bài tập **cá nhân** (1 người / 1 MSSV).  
 > 🎯 **Mục tiêu:** đóng vai **Blue Team** để học cách xây Guardrails phòng thủ, rồi đóng vai **Red Team** để tấn công agent **Red** hoặc **Red Advance**.  
 > ✅ Làm theo **Checkpoint 1 → 5** trong [`CHECKPOINTS.md`](CHECKPOINTS.md) · nộp theo [`SUBMISSION.md`](SUBMISSION.md).
